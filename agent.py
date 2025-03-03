@@ -20,8 +20,12 @@ from utils.cls import cls
 from utils.fn_reset_config import main as reset_main
 from utils.updater import check_update_available
 
+# Imports for the API System
+import uvicorn
+from fastapi import FastAPI, HTTPException
+import docker
 
-def mainmenu(m4b_config_path: str, apps_config_path: str, user_config_path: str, utils_dir_path: str) -> None:
+def agent(m4b_config_path: str, apps_config_path: str, user_config_path: str, utils_dir_path: str) -> None:
     """
     Main menu of the script.
 
@@ -85,7 +89,7 @@ def mainmenu(m4b_config_path: str, apps_config_path: str, user_config_path: str,
             logging.info(f"Successfully loaded modules from {utils_dir_path}")
             cls()
             print(f"{Fore.GREEN}----------------------------------------------")
-            print(f"{Fore.GREEN}MONEY4BAND AUTOMATIC GUIDED SETUP v{m4b_config.get('project')['project_version']}{Style.RESET_ALL}")
+            print(f"{Fore.GREEN}MONEY4BAND !GRID MODE AGENT! v{m4b_config.get('project')['project_version']}{Style.RESET_ALL}")
             check_update_available(m4b_config)
             print(f"{Fore.GREEN}----------------------------------------------{Style.RESET_ALL}")
             print(f"{Fore.YELLOW}Support the M4B development <3 check the donation options in the README, on GitHub or in our Discord. Every bit helps!")
@@ -100,31 +104,55 @@ def mainmenu(m4b_config_path: str, apps_config_path: str, user_config_path: str,
             raise
         try:
             logging.debug("Loading menu options from config file")
-            menu_options = m4b_config["menu"]
+            app = FastAPI()
+            client = docker.from_env()
+            ### M4B Stack Management Endpoint ###
+            @app.get("/stack/stop_all")
+            def get_logs():
+                """
+                Retrieve logs from a specified Docker container.
 
-            for i, option in enumerate(menu_options, start=1):
-                print(f"{i}. {option['label']}")
+                Args:
+                    container_name (str): Name or ID of the Docker container.
+                    tail (int): Number of log lines to retrieve (default: 100).
 
-            choice = input("Select an option and press Enter: ")
+                Returns:
+                    JSON response containing logs.
+                """
+                try:
+                    m4b_tools_modules.fn_stopStack.stop_all_stacks(skip_questions=True)
+                    return {"FUCK OFF"}
+                except Exception as e:
+                    raise HTTPException(status_code=500, detail=str(e))
+            ### Docker Management Endpoints ###
+            @app.get("/logs/{container_name}")
+            def get_logs(container_name: str, tail: int = 100):
+                """
+                Retrieve logs from a specified Docker container.
 
-            try:
-                choice = int(choice)
-            except ValueError:
-                print(f"Invalid input. Please select a menu option between 1 and {len(menu_options)}.")
-                time.sleep(sleep_time)
-                continue
+                Args:
+                    container_name (str): Name or ID of the Docker container.
+                    tail (int): Number of log lines to retrieve (default: 100).
 
-            if 1 <= choice <= len(menu_options):
-                function_label = menu_options[choice - 1]["label"]
-                function_name = menu_options[choice - 1]["function"]
-                logging.info(f"User selected menu option number {choice} that corresponds to menu item {function_label}")
-                m4b_tools_modules[function_name].main(apps_config_path, m4b_config_path, user_config_path)
-            else:
-                print(f"Invalid input. Please select a menu option between 1 and {len(menu_options)}.")
-                time.sleep(sleep_time)
+                Returns:
+                    JSON response containing logs.
+                """
+                try:
+                    container = client.containers.get(container_name)
+                    logs = container.logs(tail=tail).decode("utf-8")
+                    return {"container": container_name, "logs": logs.split("\n")}
+                except docker.errors.NotFound:
+                    raise HTTPException(status_code=404, detail="Container not found")
+                except Exception as e:
+                    raise HTTPException(status_code=500, detail=str(e))
+
+            # Run the API
+            uvicorn.run(app, host="0.0.0.0", port=5800)
+            #m4b_tools_modules[function_name].main(apps_config_path, m4b_config_path, user_config_path)
         except Exception as e:
-            logging.error(f"An error occurred while processing the menu: {str(e)}")
+            logging.error(f"An error occurred while running the agent: {str(e)}")
             raise
+
 
 
 def main():
@@ -178,7 +206,7 @@ def main():
             dest_path=user_config_path
         )
     try:
-        mainmenu(
+        agent(
             m4b_config_path=os.path.join(args.config_dir, args.config_m4b_file),
             apps_config_path=os.path.join(args.config_dir, args.config_app_file),
             user_config_path=user_config_path,
